@@ -439,7 +439,15 @@ input[type="range"]::-webkit-slider-thumb {
 input[type="range"]::-webkit-slider-thumb:hover {
     transform: scale(1.2);
 }
-
+/* =========================================
+TOGGLE SWITCH
+========================================= */
+.switch { position: relative; display: inline-block; width: 60px; height: 34px; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255, 255, 255, 0.2); transition: 0.4s; border-radius: 34px; }
+.slider:before { position: absolute; content: ""; height: 26px; width: 26px; left: 4px; bottom: 4px; background-color: white; transition: 0.4s; border-radius: 50%; box-shadow: 0 2px 5px rgba(0,0,0,0.3); }
+input:checked + .slider { background-color: #66ddff; box-shadow: 0 0 10px rgba(102, 221, 255, 0.5); }
+input:checked + .slider:before { transform: translateX(26px); }
 </style>
 </head>
 <body>
@@ -485,7 +493,12 @@ input[type="range"]::-webkit-slider-thumb:hover {
         
         <div style="font-size:24px; font-weight:bold; margin-bottom:10px; margin-top:30px;">효과음 (SFX)</div>
         <input type="range" id="sfxSlider" min="0" max="1" step="0.05" value="1.0">
-        
+
+        <div style="font-size:24px; font-weight:bold; margin-bottom:10px; margin-top:30px;">화면 자동 녹화</div>
+        <label class="switch">
+            <input type="checkbox" id="recordToggle" checked>
+            <span class="slider"></span>
+        </label>
         <button class="btn" id="closeSettingsBtn" style="margin-top:50px;">닫기</button>
     </div>
 
@@ -1173,64 +1186,71 @@ async function startTracking(){
 /* =========================================
 START GAME
 ========================================= */
-
-startBtn.addEventListener(
-    "click",
-    async ()=>{
+startBtn.addEventListener("click", async () => {
 
     startBtn.disabled = true;
 
     if(bgm.paused){
-
         bgm.play().catch(()=>{});
     }
 
+    // 🌟 1. 자동 녹화가 켜져 있다면 화면 공유 팝업 먼저 띄우기
+    if (isAutoRecordEnabled) {
+        try {
+            screenStream = await navigator.mediaDevices.getDisplayMedia({
+                video: { displaySurface: "browser" },
+                audio: true 
+            });
+            
+            recordedChunks = [];
+            mediaRecorder = new MediaRecorder(screenStream);
+            
+            mediaRecorder.ondataavailable = (e) => {
+                if (e.data.size > 0) recordedChunks.push(e.data);
+            };
+            
+            mediaRecorder.onstop = () => {
+                videoBlob = new Blob(recordedChunks, { type: "video/webm" });
+                recordUI.style.display = "block"; // 녹화 종료 후 UI 띄우기
+            };
+
+            mediaRecorder.start();
+            console.log("전체 화면 녹화가 시작되었습니다.");
+        } catch (error) {
+            console.log("화면 녹화가 취소되었습니다. 녹화 없이 진행합니다.");
+        }
+    }
+
+    // 🌟 2. 권한 허용이 끝났거나(또는 녹화기능을 끈 경우) 카운트다운 시작
     overlay.style.display = "flex";
-
-    overlayText.innerText =
-        "준비하세요";
-
+    overlayText.innerText = "준비하세요";
     overlayText.style.opacity = 1;
-
     guide.style.opacity = 1;
 
     await sleep(1200);
-
     overlayText.style.opacity = 0;
-
     await sleep(700);
 
-    const arr =
-        ["3","2","1","START"];
+    const arr = ["3","2","1","START"];
 
     for(const t of arr){
-
         countdown.innerText = t;
-
         countdown.style.opacity = 1;
-
         await sleep(700);
-
         countdown.style.opacity = 0;
-
         await sleep(250);
     }
 
     video.classList.add("playing");
-
     overlay.style.display = "none";
-
     menu.style.display = "none";
 
-    fadeVolume(bgm,.05,.02);
+    fadeVolume(bgm, .05, .02);
 
     gameStarted = true;
-
     startTime = performance.now();
 
     updateTimer();
-
-    startRecording();
 });
 
 /* =========================================
@@ -1533,136 +1553,88 @@ document.body.addEventListener(
 })();
 
 /* =========================================
-화면 녹화 (MediaRecorder) 로직
+화면 녹화 (MediaRecorder) 및 설정 로직
 ========================================= */
 let mediaRecorder;
 let recordedChunks = [];
 let videoBlob = null;
+let screenStream = null;
+let isAutoRecordEnabled = true; // 기본 설정: 녹화 켜짐
 
+// UI 요소들
 const recordUI = document.getElementById("recordUI");
 const recordMsg = document.getElementById("recordMsg");
 const saveVideoBtn = document.getElementById("saveVideoBtn");
 const deleteVideoBtn = document.getElementById("deleteVideoBtn");
 
-function startRecording() {
-    recordedChunks = [];
-    
-    // 💡 주의: 네 게임 화면이 그려지는 태그(보통 canvas)를 가져와야 해.
-    // 만약 캔버스 id가 따로 있다면 "canvas" 부분을 그 id(예: "#gameCanvas")로 바꿔줘!
-    const canvas = document.querySelector("canvas"); 
-    
-    if (!canvas) {
-        console.error("캔버스를 찾을 수 없어서 녹화를 시작할 수 없습니다.");
-        return;
-    }
-
-    // 캔버스의 화면을 초당 30프레임으로 가져옴
-    const stream = canvas.captureStream(30); 
-    mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
-
-    mediaRecorder.ondataavailable = function(event) {
-        if (event.data.size > 0) {
-            recordedChunks.push(event.data);
-        }
-    };
-
-    mediaRecorder.onstop = function() {
-        videoBlob = new Blob(recordedChunks, { type: 'video/webm' });
-        recordUI.style.display = "block"; // 녹화 종료 후 버튼 띄우기
-        recordMsg.innerText = "영상이 준비되었습니다!";
-        recordMsg.style.color = "#7dff9d";
-    };
-
-    mediaRecorder.start();
-    console.log("🎥 화면 녹화 시작!");
-}
-
-function stopRecording() {
-    if (mediaRecorder && mediaRecorder.state === "recording") {
-        mediaRecorder.stop();
-        console.log("🛑 화면 녹화 종료!");
-    }
-}
-
-// 저장 버튼 누를 때
-saveVideoBtn.addEventListener("click", () => {
-    if (!videoBlob) return;
-    
-    const url = URL.createObjectURL(videoBlob);
-    const a = document.createElement("a");
-    a.style.display = "none";
-    a.href = url;
-    a.download = `RockBreaker_Play.webm`; // 다운로드될 파일명
-    document.body.appendChild(a);
-    a.click();
-    
-    // 다운로드 완료 후 문구 변경 및 메모리 정리
-    setTimeout(() => {
-        document.body.removeChild(a);
-        window.URL.revokeObjectURL(url);
-        recordMsg.innerText = "영상이 기기에 저장되었습니다!";
-        recordMsg.style.color = "#66ddff";
-        
-        // 2초 뒤에 버튼 UI 스르륵 숨기기
-        setTimeout(() => {
-            recordUI.style.display = "none";
-        }, 2000);
-    }, 100);
-});
-
-// 삭제 버튼 누를 때
-deleteVideoBtn.addEventListener("click", () => {
-    recordedChunks = [];
-    videoBlob = null;
-    recordMsg.innerText = "영상이 삭제되었습니다.";
-    recordMsg.style.color = "#ffaaaa";
-    
-    setTimeout(() => {
-        recordUI.style.display = "none";
-    }, 1000);
-});
-
-/* =========================================
-SETTINGS (설정창 및 볼륨 조절)
-========================================= */
+const recordToggle = document.getElementById("recordToggle");
 const settingsBtn = document.getElementById("settingsBtn");
 const settingsModal = document.getElementById("settingsModal");
 const closeSettingsBtn = document.getElementById("closeSettingsBtn");
 const bgmSlider = document.getElementById("bgmSlider");
 const sfxSlider = document.getElementById("sfxSlider");
 
-// 글로벌 볼륨 변수 (게임 내에서 이걸 기준으로 소리를 냄)
 let masterBgmVolume = 0.45;
 let masterSfxVolume = 1.0;
 
-// 설정창 열기
+// 설정창 열고 닫기
 settingsBtn.addEventListener("click", () => {
     settingsModal.style.display = "flex";
 });
-
-// 설정창 닫기
 closeSettingsBtn.addEventListener("click", () => {
     settingsModal.style.display = "none";
 });
 
-// 배경음(BGM) 조절 이벤트
+// 볼륨 슬라이더 이벤트
 bgmSlider.addEventListener("input", (e) => {
     masterBgmVolume = parseFloat(e.target.value);
-    
-    // 게임 대기 중이거나 끝났을 때는 즉시 볼륨 변경 반영
-    if (!gameStarted || gameEnded) {
-        bgm.volume = masterBgmVolume;
-    }
+    bgm.volume = masterBgmVolume;
 });
-
-// 효과음(SFX) 조절 이벤트
 sfxSlider.addEventListener("input", (e) => {
     masterSfxVolume = parseFloat(e.target.value);
-    
-    // 조절할 때마다 미리듣기로 타격음을 살짝 재생해줌
-    const testSound = hitSound.cloneNode();
-    testSound.volume = 0.3 * masterSfxVolume;
-    testSound.play().catch(()=>{});
+});
+
+// 녹화 토글 이벤트
+if(recordToggle) {
+    recordToggle.addEventListener("change", (e) => {
+        isAutoRecordEnabled = e.target.checked;
+    });
+}
+
+// 녹화 종료 함수 (endGame에서 호출됨)
+function stopRecording() {
+    if (mediaRecorder && mediaRecorder.state !== "inactive") {
+        mediaRecorder.stop();
+        // 화면 공유 스트림 끄기 (브라우저 상단 공유 마크 없애기)
+        if(screenStream) {
+            screenStream.getTracks().forEach(track => track.stop());
+        }
+    }
+}
+
+// 영상 저장 버튼
+saveVideoBtn.addEventListener("click", () => {
+    if (!videoBlob) return;
+    const url = URL.createObjectURL(videoBlob);
+    const a = document.createElement("a");
+    a.style.display = "none";
+    a.href = url;
+    a.download = "rock_breaker_play.webm";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+    }, 100);
+    recordMsg.innerText = "저장 완료!";
+});
+
+// 영상 삭제 버튼
+deleteVideoBtn.addEventListener("click", () => {
+    videoBlob = null;
+    recordedChunks = [];
+    recordUI.style.display = "none";
+    alert("영상이 삭제되었습니다.");
 });
 
 </script>
