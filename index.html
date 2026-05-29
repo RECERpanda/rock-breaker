@@ -140,6 +140,7 @@ GAME UI
 ========================================= */
 
 #counter{
+    display: none;
     position:absolute;
 
     top:55px;
@@ -157,6 +158,7 @@ GAME UI
 }
 
 #timer{
+    display: none;
     position:absolute;
 
     top:20px;
@@ -976,6 +978,8 @@ startBtn.addEventListener("click", async () => {
     video.classList.add("playing");
     overlay.style.display = "none";
     menu.style.display = "none";
+    counter.style.display = "block";
+    timer.style.display = "block";
 
     fadeVolume(bgm, .05, .02);
     gameStarted = true;
@@ -1091,24 +1095,47 @@ async function autoSaveScore() {
         return;
     }
 
-    saveMsg.innerText = "서버에 기록을 자동 저장 중입니다...";
+    saveMsg.innerText = "서버에 기록을 자동 확인 중입니다...";
     saveMsg.style.color = "#7dff9d";
 
     try {
-        await db.collection("rankings").add({
-            uid: currentUser.uid,
-            name: currentUserNickname,
-            time: recordedFinalTime,
-            date: new Date().toLocaleDateString(),
-            timestamp: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        saveMsg.innerText = "기록이 자동으로 랭킹에 등록되었습니다!";
+        // 🌟 유저의 고유 ID(uid)를 문서 이름으로 사용해 한 계정당 1개의 기록만 관리!
+        const docRef = db.collection("rankings").doc(currentUser.uid);
+        const docSnap = await docRef.get();
+
+        if (docSnap.exists) {
+            const bestTime = docSnap.data().time;
+            
+            // 🌟 50번 치는 '타임어택'이므로 시간이 '더 짧을 때만(작을 때만)' 갱신!
+            if (recordedFinalTime < bestTime) {
+                await docRef.update({
+                    time: recordedFinalTime,
+                    name: currentUserNickname,
+                    date: new Date().toLocaleDateString(),
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                saveMsg.innerText = "🎉 최고 기록 경신! 랭킹이 업데이트되었습니다!";
+            } else {
+                saveMsg.innerText = `아쉽게도 최고 기록(${bestTime.toFixed(2)}초)을 넘지 못했습니다.`;
+                saveMsg.style.color = "#cccccc"; // 회색으로 표시
+            }
+        } else {
+            // 🌟 처음 플레이하는 거라면 새로 기록 생성
+            await docRef.set({
+                uid: currentUser.uid,
+                name: currentUserNickname,
+                time: recordedFinalTime,
+                date: new Date().toLocaleDateString(),
+                timestamp: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            saveMsg.innerText = "기록이 랭킹에 처음 등록되었습니다!";
+        }
     } catch (error) {
         saveMsg.innerText = "저장 실패: 서버 연결을 확인하세요.";
         saveMsg.style.color = "#ffaaaa";
     }
 }
-
+    
 /* =========================================
 RANKING DATA LOADING
 ========================================= */
